@@ -4,7 +4,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import jsQR from 'jsqr';
 import QRCode from 'qrcode';
-import { estimatePose, isWave, PAYLOAD } from './pose.js';
+import { isWave, PAYLOAD } from './pose.js';
+import { MarkerTracker, TRACKING_TIMEOUT } from './tracking.js';
 
 const $ = id => document.getElementById(id);
 if (new URLSearchParams(location.search).has('marker')) {
@@ -35,6 +36,7 @@ async function init() {
   const light = new THREE.DirectionalLight(0xfff4df,3); light.position.set(-2,4,3); scene.add(light);
   const anchor = new THREE.Group(); scene.add(anchor); anchor.visible = false;
   const targetPosition = new THREE.Vector3(), targetRotation = new THREE.Quaternion();
+  const tracker = new MarkerTracker();
   const scan = document.createElement('canvas'), ctx = scan.getContext('2d', { willReadFrequently: true });
   let stream, starting=false, mixer, modelReady=false, modelLoading=false, lastSeen=0, lastScan=0, running=true;
   let width=640,height=480,focal=576, seen=false;
@@ -48,7 +50,7 @@ async function init() {
     width=Math.round(Math.min(w,720));height=Math.round(width*h/w);focal=Math.max(width,height)*.9;
     scan.width=width;scan.height=height;
     camera.aspect=width/height; camera.fov=THREE.MathUtils.radToDeg(2*Math.atan(height/(2*focal)));camera.updateProjectionMatrix();
-    lastSeen=0;anchor.visible=false;seen=false;
+    lastSeen=0;anchor.visible=false;seen=false;tracker.reset();
   }
   new ResizeObserver(resize).observe($('experience'));
   video.addEventListener('resize',resize);
@@ -105,22 +107,23 @@ async function init() {
       const pixels=ctx.getImageData(0,0,width,height);
       const qr=jsQR(pixels.data,width,height,{inversionAttempts:'dontInvert'});
       if(qr&&isWave(qr.data)){
-        const l=qr.location,pose=estimatePose([l.topLeftCorner,l.topRightCorner,l.bottomRightCorner,l.bottomLeftCorner],width,height,focal);
+        const l=qr.location,pose=tracker.update([l.topLeftCorner,l.topRightCorner,l.bottomRightCorner,l.bottomLeftCorner],width,height,focal,now);
         if(pose){
-          targetPosition.fromArray(pose.position);
-          targetRotation.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(...pose.x),new THREE.Vector3(...pose.y),new THREE.Vector3(...pose.z)));
-          if(!seen||now-lastSeen>450){anchor.position.copy(targetPosition);anchor.quaternion.copy(targetRotation);mixer?.setTime(0);}
+          targetPosition.copy(pose.position);
+          targetRotation.copy(pose.rotation);
+          if(pose.snap){anchor.position.copy(targetPosition);anchor.quaternion.copy(targetRotation);}
+          if(!seen)mixer?.setTime(0);
           lastSeen=now;seen=true;
         }
       }else if(qr){status('tutu用のQRコードを映してください');}
     }
-    const visible=modelReady&&seen&&now-lastSeen<450;
+    const visible=modelReady&&seen&&now-lastSeen<TRACKING_TIMEOUT;
     anchor.visible=visible;$('experience').classList.toggle('tracking',visible);
     if(visible){
-      const smoothing=1-Math.exp(-delta*22);
+      const smoothing=1-Math.exp(-delta*12);
       anchor.position.lerp(targetPosition,smoothing);anchor.quaternion.slerp(targetRotation,smoothing);
       mixer.update(delta);status('tutuが、こんにちは！');$('hint').textContent='QRコードを映したまま、少し角度を変えてみて';
-    }else if(stream&&seen){status(now-lastSeen<450?'tutuを準備しています':'QRコードを探しています');$('hint').textContent='QRコード全体を映してください';}
+    }else if(stream&&seen){status(now-lastSeen<TRACKING_TIMEOUT?'tutuを準備しています':'QRコードを探しています');$('hint').textContent='QRコード全体を映してください';}
     renderer.render(scene,camera);
   }
   requestAnimationFrame(frame);

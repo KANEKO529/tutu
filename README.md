@@ -22,7 +22,8 @@ PCでは http://localhost:5173 を開く。スマホのカメラ利用はHTTPS�
 ## 表示と制限
 
 - jsQRで約10回/秒解析し、QR四隅のホモグラフィから姿勢を推定。QRの中心を足元として立つ。
-- 450ms検出が途切れたら非表示。QRを再検出すると手振りを先頭から再生する。
+- 四隅の座標を適応的に平滑化し、微小な位置・角度の変化と一時的な大ジャンプを抑制する。QRが小さすぎる場合（解析画像で一辺38px未満）は姿勢更新を見送る。
+- 800ms検出が途切れたら非表示。短い検出途切れでは姿勢を保持し、アニメーションを巻き戻さない。
 - カメラの焦点距離は推定値。端末の校正やSLAMは行わないため、強い傾きやレンズ歪みによるズレ・揺れがありうる。QRが見えない間も空間に固定する方式ではない。
 - カメラ映像の解析はブラウザ内。映像のアップロード処理はない。
 - オリジナルGLBは変更しない。`node optimize.mjs` でWeb用モデルを生成する。
@@ -34,3 +35,11 @@ PCでは http://localhost:5173 を開く。スマホのカメラ利用はHTTPS�
 npm test
 npm run build
 ```
+
+## GitHub Pages
+
+リポジトリの Settings → Pages → Build and deployment で Source を **GitHub Actions** にする。
+`main` へpushすると `.github/workflows/pages.yml` がテスト・ビルド・デプロイを実行する。Actions画面から手動実行も可能。
+
+Viteの `base: './'` により `/リポジトリ名/` 配下でもJS・CSS・GLBを読み込める。
+公開URLの末尾に `?marker` を付けると読み取り用QRを表示する。GitHub PagesのHTTPS URLならスマホでもカメラを利用できる。
